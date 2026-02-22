@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Master Key Merger - Phase 3</title>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #0b131e; color: #e1e8ed; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .card { background: #15202b; padding: 25px; border-radius: 15px; border: 1px solid #00d2ff; width: 100%; max-width: 600px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        h2 { color: #00d2ff; text-align: center; margin-bottom: 25px; }
+        .upload-group { margin-bottom: 20px; border-left: 4px solid #00d2ff; padding-left: 15px; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; font-size: 14px; }
+        input { background: #192734; color: white; border: 1px solid #38444d; padding: 10px; border-radius: 8px; width: 95%; cursor: pointer; }
+        button { width: 100%; padding: 15px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; margin-top: 10px; transition: 0.3s; }
+        .btn-merge { background: #00f5d4; color: #000; }
+        .btn-merge:disabled { background: #38444d; cursor: not-allowed; }
+        .status { margin-top: 20px; font-size: 13px; color: #8899a6; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 5px; }
+        .success-text { color: #00f5d4; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2><i class="fas fa-random"></i> DYNAMIC KEY MERGER</h2>
+    
+    <div class="upload-group">
+        <label>1. MASTER FILE (Base Database)</label>
+        <input type="file" id="masterFile" accept=".xlsx, .xls">
+    </div>
+
+    <div class="upload-group" style="border-left-color: #ffae00;">
+        <label>2. SYNC FILE (With New Keys & Names)</label>
+        <input type="file" id="syncFile" accept=".xlsx, .xls">
+    </div>
+
+    <button id="mergeBtn" class="btn-merge" onclick="processMerge()">START DYNAMIC MERGE</button>
+
+    <div id="status" class="status">Waiting for files...</div>
+</div>
+
+<script>
+    let masterRaw = [];
+    let syncRaw = [];
+
+    // Helper: Normalize name for dynamic matching
+    function normalize(name) {
+        if (!name) return "";
+        return name.toString().toLowerCase().replace(/[^a-z0-9]/g, ""); // Remove spaces/symbols
+    }
+
+    async function processMerge() {
+        const mFile = document.getElementById('masterFile').files[0];
+        const sFile = document.getElementById('syncFile').files[0];
+        const status = document.getElementById('status');
+
+        if (!mFile || !sFile) {
+            alert("Please upload both files, Professor.");
+            return;
+        }
+
+        status.innerHTML = "Reading files...";
+
+        try {
+            masterRaw = await readFile(mFile);
+            syncRaw = await readFile(sFile);
+
+            status.innerHTML = "Matching & Merging... Please wait.";
+
+            let updatedCount = 0;
+            // Assume Master has: [Name, IP, Key, Node, Model, Lat, Long, Client]
+            // Master[0] is Site Name, Master[2] is Key Info
+            // Sync has: [Name, Key] (assuming first two columns)
+
+            const masterData = [...masterRaw];
+            
+            // Start matching from row 1 (skipping header)
+            for (let i = 1; i < masterData.length; i++) {
+                let masterSiteName = normalize(masterData[i][0]);
+                
+                // Try to find a match in Sync file
+                for (let j = 1; j < syncRaw.length; j++) {
+                    let syncSiteName = normalize(syncRaw[j][0]);
+                    let newKey = syncRaw[j][1];
+
+                    // DYNAMIC MATCH: Exact or Partial check
+                    if (masterSiteName !== "" && (masterSiteName === syncSiteName || masterSiteName.includes(syncSiteName) || syncSiteName.includes(masterSiteName))) {
+                        masterData[i][2] = newKey; // Update Master Key Column
+                        updatedCount++;
+                        break;
+                    }
+                }
+            }
+
+            status.innerHTML = `<span class="success-text">Merge Complete!</span><br>Matched & Updated: ${updatedCount} sites.`;
+            downloadExcel(masterData);
+
+        } catch (err) {
+            status.innerHTML = "Error: " + err.message;
+        }
+    }
+
+    function readFile(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                resolve(XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, defval: "" }));
+            };
+            reader.onerror = reject;
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    function downloadExcel(data) {
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Merged_Database");
+        XLSX.writeFile(wb, "Professor_Updated_Master.xlsx");
+    }
+</script>
+
+</body>
+</html>
