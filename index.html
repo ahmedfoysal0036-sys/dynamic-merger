@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Master Key Merger - Phase 3</title>
+    <title>Master Key Merger - Phase 3 (Optimized)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #0b131e; color: #e1e8ed; padding: 20px; display: flex; flex-direction: column; align-items: center; }
@@ -15,7 +15,7 @@
         button { width: 100%; padding: 15px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; margin-top: 10px; transition: 0.3s; }
         .btn-merge { background: #00f5d4; color: #000; }
         .btn-merge:disabled { background: #38444d; cursor: not-allowed; }
-        .status { margin-top: 20px; font-size: 13px; color: #8899a6; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 5px; }
+        .status { margin-top: 20px; font-size: 13px; color: #8899a6; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 5px; white-space: pre-line; }
         .success-text { color: #00f5d4; font-weight: bold; }
     </style>
 </head>
@@ -36,17 +36,14 @@
 
     <button id="mergeBtn" class="btn-merge" onclick="processMerge()">START DYNAMIC MERGE</button>
 
-    <div id="status" class="status">Waiting for files...</div>
+    <div id="status" class="status">Waiting for files, Professor...</div>
 </div>
 
 <script>
-    let masterRaw = [];
-    let syncRaw = [];
-
     // Helper: Normalize name for dynamic matching
     function normalize(name) {
         if (!name) return "";
-        return name.toString().toLowerCase().replace(/[^a-z0-9]/g, ""); // Remove spaces/symbols
+        return name.toString().toLowerCase().trim().replace(/[^a-z0-9]/g, "");
     }
 
     async function processMerge() {
@@ -62,41 +59,51 @@
         status.innerHTML = "Reading files...";
 
         try {
-            masterRaw = await readFile(mFile);
-            syncRaw = await readFile(sFile);
+            const masterData = await readFile(mFile);
+            const syncRaw = await readFile(sFile);
 
-            status.innerHTML = "Matching & Merging... Please wait.";
+            status.innerHTML = "Matching & Merging 6000+ records... Please wait.";
 
             let updatedCount = 0;
-            // Assume Master has: [Name, IP, Key, Node, Model, Lat, Long, Client]
-            // Master[0] is Site Name, Master[2] is Key Info
-            // Sync has: [Name, Key] (assuming first two columns)
-
-            const masterData = [...masterRaw];
             
-            // Start matching from row 1 (skipping header)
-            for (let i = 1; i < masterData.length; i++) {
-                let masterSiteName = normalize(masterData[i][0]);
-                
-                // Try to find a match in Sync file
-                for (let j = 1; j < syncRaw.length; j++) {
-                    let syncSiteName = normalize(syncRaw[j][0]);
-                    let newKey = syncRaw[j][1];
+            // ১. সিঙ্ক ফাইলকে Map-এ রূপান্তর (O(1) search complexity)
+            const syncMap = new Map();
+            for (let j = 1; j < syncRaw.length; j++) {
+                let sName = normalize(syncRaw[j][0]);
+                let sKey = syncRaw[j][1];
+                if (sName !== "") {
+                    syncMap.set(sName, sKey); 
+                }
+            }
 
-                    // DYNAMIC MATCH: Exact or Partial check
-                    if (masterSiteName !== "" && (masterSiteName === syncSiteName || masterSiteName.includes(syncSiteName) || syncSiteName.includes(masterSiteName))) {
-                        masterData[i][2] = newKey; // Update Master Key Column
-                        updatedCount++;
-                        break;
+            // ২. মাস্টার ফাইল লুপ করা (Optimized Search)
+            for (let i = 1; i < masterData.length; i++) {
+                let mName = normalize(masterData[i][0]);
+                if (mName === "") continue;
+
+                // ৩. ডাইনামিক ম্যাচিং (Exact then Partial)
+                if (syncMap.has(mName)) {
+                    masterData[i][2] = syncMap.get(mName); // Update Column Index 2 (Key)
+                    updatedCount++;
+                } 
+                else {
+                    // যদি হুবহু না মিলে তবেই কেবল লুপ চালাবে (Partial Match)
+                    for (let [sName, sKey] of syncMap) {
+                        if (mName.includes(sName) || sName.includes(mName)) {
+                            masterData[i][2] = sKey;
+                            updatedCount++;
+                            break; 
+                        }
                     }
                 }
             }
 
-            status.innerHTML = `<span class="success-text">Merge Complete!</span><br>Matched & Updated: ${updatedCount} sites.`;
+            status.innerHTML = `<span class="success-text">Merge Complete!</span>\nMatched & Updated: ${updatedCount} sites.\nTotal processed: ${masterData.length - 1} rows.`;
             downloadExcel(masterData);
 
         } catch (err) {
             status.innerHTML = "Error: " + err.message;
+            console.error(err);
         }
     }
 
@@ -106,9 +113,12 @@
             reader.onload = (e) => {
                 const data = new Uint8Array(e.target.result);
                 const workbook = XLSX.read(data, { type: 'array' });
-                resolve(XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, defval: "" }));
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                // header: 1 ensures it returns an array of arrays
+                resolve(XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" }));
             };
-            reader.onerror = reject;
+            reader.onerror = (err) => reject(new Error("File reading failed."));
             reader.readAsArrayBuffer(file);
         });
     }
@@ -117,7 +127,7 @@
         const ws = XLSX.utils.aoa_to_sheet(data);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Merged_Database");
-        XLSX.writeFile(wb, "Professor_Updated_Master.xlsx");
+        XLSX.writeFile(wb, "Professor_Updated_Master_Complete.xlsx");
     }
 </script>
 
