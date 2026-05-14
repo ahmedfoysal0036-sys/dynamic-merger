@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Master Key Merger - Phase 3 (Optimized)</title>
+    <title>Master Key Merger - Phase 3 (Ultimate)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #0b131e; color: #e1e8ed; padding: 20px; display: flex; flex-direction: column; align-items: center; }
@@ -14,8 +14,7 @@
         input { background: #192734; color: white; border: 1px solid #38444d; padding: 10px; border-radius: 8px; width: 95%; cursor: pointer; }
         button { width: 100%; padding: 15px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; margin-top: 10px; transition: 0.3s; }
         .btn-merge { background: #00f5d4; color: #000; }
-        .btn-merge:disabled { background: #38444d; cursor: not-allowed; }
-        .status { margin-top: 20px; font-size: 13px; color: #8899a6; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 5px; white-space: pre-line; }
+        .status { margin-top: 20px; font-size: 13px; color: #8899a6; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 5px; white-space: pre-line; min-height: 50px; }
         .success-text { color: #00f5d4; font-weight: bold; }
     </style>
 </head>
@@ -40,10 +39,14 @@
 </div>
 
 <script>
-    // Helper: Normalize name for dynamic matching
+    // নিখুঁত নরমালাইজেশন: স্পেস, হিডেন ক্যারেক্টার সব রিমুভ করবে
     function normalize(name) {
         if (!name) return "";
-        return name.toString().toLowerCase().trim().replace(/[^a-z0-9]/g, "");
+        return name.toString()
+                   .toLowerCase()
+                   .replace(/[\u200B-\u200D\uFEFF]/g, "") // Hidden Unicode রিমুভ
+                   .trim()
+                   .replace(/[^a-z0-9]/g, ""); // শুধু আলফানিউমেরিক রাখবে
     }
 
     async function processMerge() {
@@ -56,40 +59,44 @@
             return;
         }
 
-        status.innerHTML = "Reading files...";
+        status.innerHTML = "Reading and Parsing Excel files...";
 
         try {
             const masterData = await readFile(mFile);
             const syncRaw = await readFile(sFile);
 
-            status.innerHTML = "Matching & Merging 6000+ records... Please wait.";
+            status.innerHTML = "Processing 6000+ records... Please wait.";
 
             let updatedCount = 0;
             
-            // ১. সিঙ্ক ফাইলকে Map-এ রূপান্তর (O(1) search complexity)
+            // ১. সিঙ্ক ফাইল থেকে ক্লিন ম্যাপ তৈরি (Fast Lookup)
             const syncMap = new Map();
             for (let j = 1; j < syncRaw.length; j++) {
                 let sName = normalize(syncRaw[j][0]);
                 let sKey = syncRaw[j][1];
-                if (sName !== "") {
+                if (sName.length > 1) { // অন্তত ২ অক্ষরের নাম হতে হবে ভুল এড়াতে
                     syncMap.set(sName, sKey); 
                 }
             }
 
-            // ২. মাস্টার ফাইল লুপ করা (Optimized Search)
+            // ২. মাস্টার ফাইল লুপ (O(n) complexity)
             for (let i = 1; i < masterData.length; i++) {
                 let mName = normalize(masterData[i][0]);
-                if (mName === "") continue;
+                if (!mName) continue;
 
-                // ৩. ডাইনামিক ম্যাচিং (Exact then Partial)
+                let found = false;
+
+                // ৩. প্রথমেই Exact Match ট্রাই করবে
                 if (syncMap.has(mName)) {
-                    masterData[i][2] = syncMap.get(mName); // Update Column Index 2 (Key)
+                    masterData[i][2] = syncMap.get(mName);
                     updatedCount++;
+                    found = true;
                 } 
-                else {
-                    // যদি হুবহু না মিলে তবেই কেবল লুপ চালাবে (Partial Match)
+                
+                // ৪. যদি না মিলে, তবে Partial Match (Fuzzy) ট্রাই করবে
+                if (!found) {
                     for (let [sName, sKey] of syncMap) {
-                        if (mName.includes(sName) || sName.includes(mName)) {
+                        if (sName.length > 3 && (mName.includes(sName) || sName.includes(mName))) {
                             masterData[i][2] = sKey;
                             updatedCount++;
                             break; 
@@ -103,7 +110,7 @@
 
         } catch (err) {
             status.innerHTML = "Error: " + err.message;
-            console.error(err);
+            console.error("Debug Details:", err);
         }
     }
 
@@ -111,14 +118,14 @@
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = (e) => {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array' });
-                const firstSheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[firstSheetName];
-                // header: 1 ensures it returns an array of arrays
-                resolve(XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" }));
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    resolve(XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }));
+                } catch (e) { reject(new Error("Invalid Excel format.")); }
             };
-            reader.onerror = (err) => reject(new Error("File reading failed."));
+            reader.onerror = () => reject(new Error("File read error."));
             reader.readAsArrayBuffer(file);
         });
     }
@@ -126,8 +133,8 @@
     function downloadExcel(data) {
         const ws = XLSX.utils.aoa_to_sheet(data);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Merged_Database");
-        XLSX.writeFile(wb, "Professor_Updated_Master_Complete.xlsx");
+        XLSX.utils.book_append_sheet(wb, ws, "Updated_Database");
+        XLSX.writeFile(wb, "Professor_Final_Merge.xlsx");
     }
 </script>
 
