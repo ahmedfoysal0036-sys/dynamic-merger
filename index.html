@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Master Key Merger - Phase 3 (Ultimate)</title>
+    <title>Master Key Merger - Phase 3.1 (Pro)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #0b131e; color: #e1e8ed; padding: 20px; display: flex; flex-direction: column; align-items: center; }
@@ -14,39 +14,28 @@
         input { background: #192734; color: white; border: 1px solid #38444d; padding: 10px; border-radius: 8px; width: 95%; cursor: pointer; }
         button { width: 100%; padding: 15px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; margin-top: 10px; transition: 0.3s; }
         .btn-merge { background: #00f5d4; color: #000; }
-        .status { margin-top: 20px; font-size: 13px; color: #8899a6; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 5px; white-space: pre-line; min-height: 50px; }
+        .status { margin-top: 20px; font-size: 13px; color: #8899a6; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 5px; }
         .success-text { color: #00f5d4; font-weight: bold; }
     </style>
 </head>
 <body>
-
 <div class="card">
-    <h2><i class="fas fa-random"></i> DYNAMIC KEY MERGER</h2>
-    
+    <h2><i class="fas fa-random"></i> DYNAMIC KEY MERGER V3.1</h2>
     <div class="upload-group">
         <label>1. MASTER FILE (Base Database)</label>
-        <input type="file" id="masterFile" accept=".xlsx, .xls">
+        <input type="file" id="masterFile" accept=".xlsx">
     </div>
-
     <div class="upload-group" style="border-left-color: #ffae00;">
-        <label>2. SYNC FILE (With New Keys & Names)</label>
-        <input type="file" id="syncFile" accept=".xlsx, .xls">
+        <label>2. SYNC FILE (New Data)</label>
+        <input type="file" id="syncFile" accept=".xlsx">
     </div>
-
-    <button id="mergeBtn" class="btn-merge" onclick="processMerge()">START DYNAMIC MERGE</button>
-
-    <div id="status" class="status">Waiting for files, Professor...</div>
+    <button id="mergeBtn" class="btn-merge" onclick="processMerge()">START HIGH-SPEED MERGE</button>
+    <div id="status" class="status">Ready to process large datasets...</div>
 </div>
 
 <script>
-    // নিখুঁত নরমালাইজেশন: স্পেস, হিডেন ক্যারেক্টার সব রিমুভ করবে
     function normalize(name) {
-        if (!name) return "";
-        return name.toString()
-                   .toLowerCase()
-                   .replace(/[\u200B-\u200D\uFEFF]/g, "") // Hidden Unicode রিমুভ
-                   .trim()
-                   .replace(/[^a-z0-9]/g, ""); // শুধু আলফানিউমেরিক রাখবে
+        return name ? name.toString().toLowerCase().replace(/[^a-z0-9]/g, "") : "";
     }
 
     async function processMerge() {
@@ -54,89 +43,54 @@
         const sFile = document.getElementById('syncFile').files[0];
         const status = document.getElementById('status');
 
-        if (!mFile || !sFile) {
-            alert("Please upload both files, Professor.");
-            return;
-        }
+        if (!mFile || !sFile) { alert("Professor, please select both files."); return; }
 
-        status.innerHTML = "Reading and Parsing Excel files...";
-
+        status.innerHTML = "Reading and indexing files...";
         try {
-            const masterData = await readFile(mFile);
+            const masterRaw = await readFile(mFile);
             const syncRaw = await readFile(sFile);
 
-            status.innerHTML = "Processing 6000+ records... Please wait.";
-
-            let updatedCount = 0;
-            
-            // ১. সিঙ্ক ফাইল থেকে ক্লিন ম্যাপ তৈরি (Fast Lookup)
+            // Hash Map for O(1) lookup speed
             const syncMap = new Map();
             for (let j = 1; j < syncRaw.length; j++) {
-                let sName = normalize(syncRaw[j][0]);
-                let sKey = syncRaw[j][1];
-                if (sName.length > 1) { // অন্তত ২ অক্ষরের নাম হতে হবে ভুল এড়াতে
-                    syncMap.set(sName, sKey); 
-                }
+                let name = normalize(syncRaw[j][0]);
+                if (name) syncMap.set(name, syncRaw[j][1]);
             }
 
-            // ২. মাস্টার ফাইল লুপ (O(n) complexity)
-            for (let i = 1; i < masterData.length; i++) {
-                let mName = normalize(masterData[i][0]);
-                if (!mName) continue;
-
-                let found = false;
-
-                // ৩. প্রথমেই Exact Match ট্রাই করবে
-                if (syncMap.has(mName)) {
-                    masterData[i][2] = syncMap.get(mName);
+            let updatedCount = 0;
+            // Process data
+            for (let i = 1; i < masterRaw.length; i++) {
+                let masterSiteName = normalize(masterRaw[i][0]);
+                if (syncMap.has(masterSiteName)) {
+                    masterRaw[i][2] = syncMap.get(masterSiteName); // Key Column
                     updatedCount++;
-                    found = true;
-                } 
-                
-                // ৪. যদি না মিলে, তবে Partial Match (Fuzzy) ট্রাই করবে
-                if (!found) {
-                    for (let [sName, sKey] of syncMap) {
-                        if (sName.length > 3 && (mName.includes(sName) || sName.includes(mName))) {
-                            masterData[i][2] = sKey;
-                            updatedCount++;
-                            break; 
-                        }
-                    }
                 }
             }
 
-            status.innerHTML = `<span class="success-text">Merge Complete!</span>\nMatched & Updated: ${updatedCount} sites.\nTotal processed: ${masterData.length - 1} rows.`;
-            downloadExcel(masterData);
-
+            status.innerHTML = `<span class="success-text">Merge Successful!</span><br>Sites updated: ${updatedCount}`;
+            downloadExcel(masterRaw);
         } catch (err) {
             status.innerHTML = "Error: " + err.message;
-            console.error("Debug Details:", err);
         }
     }
 
     function readFile(file) {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             const reader = new FileReader();
             reader.onload = (e) => {
-                try {
-                    const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, { type: 'array' });
-                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                    resolve(XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }));
-                } catch (e) { reject(new Error("Invalid Excel format.")); }
+                const workbook = XLSX.read(e.target.result, { type: 'binary' });
+                resolve(XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, defval: "" }));
             };
-            reader.onerror = () => reject(new Error("File read error."));
-            reader.readAsArrayBuffer(file);
+            reader.readAsBinaryString(file);
         });
     }
 
     function downloadExcel(data) {
         const ws = XLSX.utils.aoa_to_sheet(data);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Updated_Database");
-        XLSX.writeFile(wb, "Professor_Final_Merge.xlsx");
+        XLSX.utils.book_append_sheet(wb, ws, "Merged_Data");
+        XLSX.writeFile(wb, "Professor_Merged_Master_V3.1.xlsx");
     }
 </script>
-
 </body>
 </html>
